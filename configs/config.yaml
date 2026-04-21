@@ -1,0 +1,26 @@
+data:
+  data_dir: "data/raw"
+  jsonl_path: "data/raw/train_word_transcripts.jsonl"
+  sample_rate: 16000
+  min_duration_sec: 0.5
+  max_duration_sec: 30.0
+  val_split: 0.1
+
+model:
+  name: "facebook/wav2vec2-base-960h"
+  freeze_feature_encoder: true
+
+training:
+  batch_size: 8
+  num_epochs: 30
+  learning_rate: 0.0001
+  warmup_steps: 500
+  weight_decay: 0.005
+  grad_clip: 1.0
+  num_workers: 0
+  seed: 42
+
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  log_dir: "outputs/logs"
+  save_every_n_epochs: 5
