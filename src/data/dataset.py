@@ -91,8 +91,9 @@ def make_dataloaders(
     batch_size: int = 8,
     val_split: float = 0.1,
     num_workers: int = 0,
+    cache_path: str = None,
 ):
-    df = build_dataset(data_dir, jsonl_path)
+    df = build_dataset(data_dir, jsonl_path, cache_path=cache_path)
 
     # split into train/val — stratify by age bucket
     from sklearn.model_selection import train_test_split

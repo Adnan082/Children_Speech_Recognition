@@ -102,6 +102,7 @@ def train(config_path: str = "configs/config.yaml"):
         batch_size=config["training"]["batch_size"],
         val_split=config["data"]["val_split"],
         num_workers=config["training"]["num_workers"],
+        cache_path=config["data"].get("cache_path"),
     )
 
     model = load_model(

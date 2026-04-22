@@ -66,8 +66,16 @@ def normalize_audio(audio: np.ndarray) -> np.ndarray:
     return audio
 
 
-def build_dataset(data_dir: str, jsonl_path: str) -> pd.DataFrame:
+def build_dataset(data_dir: str, jsonl_path: str, cache_path: Optional[str] = None) -> pd.DataFrame:
     data_dir = Path(data_dir)
+
+    # load from cache if it exists — skips re-processing on Colab reconnects
+    if cache_path and Path(cache_path).exists():
+        print(f"Loading preprocessed dataset from cache: {cache_path}")
+        df = pd.read_csv(cache_path)
+        df["audio_file"] = df["audio_file"].apply(lambda p: Path(p) if pd.notna(p) else None)
+        print(f"Loaded {len(df):,} samples from cache")
+        return df
 
     df = load_transcripts(jsonl_path)
     print(f"Loaded {len(df):,} samples")
@@ -87,6 +95,12 @@ def build_dataset(data_dir: str, jsonl_path: str) -> pd.DataFrame:
 
     print(f"Final dataset: {len(df):,} samples")
     print(f"Age distribution:\n{df['age_bucket'].value_counts().sort_index()}")
+
+    if cache_path:
+        Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(cache_path, index=False)
+        print(f"Dataset cached to: {cache_path}")
+
     return df
 
 
