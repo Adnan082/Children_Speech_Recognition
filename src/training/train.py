@@ -103,6 +103,7 @@ def train(config_path: str = "configs/config.yaml"):
         val_split=config["data"]["val_split"],
         num_workers=config["training"]["num_workers"],
         cache_path=config["data"].get("cache_path"),
+        in_memory=config["data"].get("in_memory", False),
     )
 
     model = load_model(

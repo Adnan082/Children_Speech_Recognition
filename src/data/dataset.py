@@ -6,17 +6,57 @@ from src.data.preprocess import build_dataset, load_audio, normalize_audio
 
 
 class ChildrenSpeechDataset(Dataset):
-    def __init__(self, df, processor: Wav2Vec2Processor, sample_rate: int = 16000):
+    def __init__(self, df, processor: Wav2Vec2Processor, sample_rate: int = 16000, in_memory: bool = False):
         self.df = df.reset_index(drop=True)
         self.processor = processor
         self.sample_rate = sample_rate
+        self.in_memory = in_memory
+        self.cache = None
+
+        if in_memory:
+            self._load_into_memory()
+
+    def _load_into_memory(self):
+        from tqdm import tqdm
+        print(f"Loading {len(self.df):,} clips into RAM...")
+        self.cache = []
+        failed = 0
+        for idx in tqdm(range(len(self.df)), desc="Caching"):
+            try:
+                row = self.df.iloc[idx]
+                audio = load_audio(row["audio_file"], target_sr=self.sample_rate)
+                audio = normalize_audio(audio)
+                inputs = self.processor(
+                    audio,
+                    sampling_rate=self.sample_rate,
+                    return_tensors="pt",
+                    padding=False,
+                )
+                label_ids = self.processor.tokenizer(
+                    row["clean_text"], return_tensors="pt"
+                ).input_ids.squeeze(0)
+                self.cache.append({
+                    "input_values": inputs.input_values.squeeze(0),
+                    "labels": label_ids,
+                    "age_bucket": row["age_bucket"],
+                    "utterance_id": row["utterance_id"],
+                })
+            except Exception:
+                failed += 1
+                self.cache.append(None)
+
+        if failed > 0:
+            print(f"Warning: {failed} clips failed to load, will be skipped")
+        print(f"Dataset loaded into RAM successfully")
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
+        if self.in_memory:
+            return self.cache[idx]
 
+        row = self.df.iloc[idx]
         audio = load_audio(row["audio_file"], target_sr=self.sample_rate)
         audio = normalize_audio(audio)
 
@@ -45,6 +85,9 @@ class SpeechCollator:
         self.padding = padding
 
     def __call__(self, batch):
+        # filter out any None entries from failed in-memory loads
+        batch = [b for b in batch if b is not None]
+
         input_values = [{"input_values": item["input_values"]} for item in batch]
         labels = [{"input_ids": item["labels"]} for item in batch]
 
@@ -92,6 +135,7 @@ def make_dataloaders(
     val_split: float = 0.1,
     num_workers: int = 0,
     cache_path: str = None,
+    in_memory: bool = False,
 ):
     df = build_dataset(data_dir, jsonl_path, cache_path=cache_path)
 
@@ -102,19 +146,22 @@ def make_dataloaders(
     )
     print(f"Train: {len(train_df):,} | Val: {len(val_df):,}")
 
-    train_dataset = ChildrenSpeechDataset(train_df, processor)
-    val_dataset = ChildrenSpeechDataset(val_df, processor)
+    train_dataset = ChildrenSpeechDataset(train_df, processor, in_memory=in_memory)
+    val_dataset = ChildrenSpeechDataset(val_df, processor, in_memory=in_memory)
 
     collator = SpeechCollator(processor)
     sampler = make_sampler(train_df)
+
+    # in-memory datasets don't benefit from multiple workers
+    effective_workers = 0 if in_memory else num_workers
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         sampler=sampler,
         collate_fn=collator,
-        num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
+        num_workers=effective_workers,
+        pin_memory=torch.cuda.is_available() and not in_memory,
     )
 
     val_loader = DataLoader(
@@ -122,8 +169,8 @@ def make_dataloaders(
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collator,
-        num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
+        num_workers=effective_workers,
+        pin_memory=torch.cuda.is_available() and not in_memory,
     )
 
     return train_loader, val_loader
